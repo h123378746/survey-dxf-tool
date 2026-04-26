@@ -1,7 +1,8 @@
-const CACHE_NAME = 'survey-dxf-v4';
+const CACHE_NAME = 'survey-dxf-v5';
 const ASSETS = [
   './',
   './index.html',
+  './dxf_template.js',
   './manifest.json',
   './icon-192.png',
   './icon-512.png'
