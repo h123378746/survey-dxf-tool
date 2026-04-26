@@ -536,7 +536,7 @@ body {
     <div class="camera-section">
       <h3>&#128247; 上傳照片辨識座標</h3>
       <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">
-        拍攝全站儀螢幕或手抄座標紙，系統自動辨識 dN / dE
+        拍攝全站儀螢幕或手抄座標紙
       </p>
       <div class="camera-btns">
         <label class="camera-btn">
@@ -550,18 +550,32 @@ body {
           <input type="file" accept="image/*" style="display:none" onchange="handleImage(event)">
         </label>
       </div>
-      <img class="img-preview" id="imgPreview">
+
+      <!-- Step 1: Show image and let user crop -->
+      <div id="cropSection" style="display:none">
+        <p style="font-size:14px;font-weight:600;color:var(--primary);margin-bottom:8px">
+          &#9997; 請用手指框選螢幕數字區域
+        </p>
+        <div style="position:relative;display:inline-block;width:100%">
+          <canvas id="cropCanvas" style="width:100%;border-radius:8px;border:2px solid var(--primary);touch-action:none"></canvas>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button onclick="resetCrop()" style="flex:1;padding:10px;border:1px solid #ccc;border-radius:8px;background:white;font-size:14px;cursor:pointer">重新框選</button>
+          <button onclick="confirmCrop()" id="btnConfirmCrop" disabled style="flex:1;padding:10px;border:none;border-radius:8px;background:var(--primary);color:white;font-size:14px;font-weight:600;cursor:pointer">辨識此區域</button>
+        </div>
+      </div>
+
       <div class="ocr-status" id="ocrStatus"></div>
       <div class="ocr-results" id="ocrResults"></div>
     </div>
 
     <div class="camera-section">
-      <h3>&#128161; 辨識說明</h3>
+      <h3>&#128161; 使用說明</h3>
       <ul style="font-size:13px;color:var(--text-secondary);padding-left:20px;line-height:1.8">
-        <li><b>全站儀螢幕</b>：只抓 dN: 和 dE: 的數值，忽略其他</li>
-        <li><b>手寫座標紙</b>：只抓有小數點的數字（如 100.515）<br>
-            上面一行 = dN，下面一行 = dE，兩兩配對</li>
-        <li>辨識後可手動修正再加入點位</li>
+        <li><b>步驟 1</b>：拍照或選照片</li>
+        <li><b>步驟 2</b>：用手指框選「只有數字的區域」</li>
+        <li><b>步驟 3</b>：按「辨識此區域」</li>
+        <li>框越精準（只框數字），辨識越準確</li>
         <li>照片不上傳，OCR 在手機端執行</li>
       </ul>
     </div>
@@ -785,151 +799,251 @@ function confirmBatch() {
 
 // ============ Camera / OCR ============
 let ocrParsedPoints = [];
+let cropState = { img: null, startX: 0, startY: 0, endX: 0, endY: 0, dragging: false, hasCrop: false };
 
 function handleImage(event) {
   const file = event.target.files[0];
   if (!file) return;
 
-  const img = document.getElementById('imgPreview');
   const reader = new FileReader();
   reader.onload = (e) => {
-    img.src = e.target.result;
-    img.style.display = 'block';
-    multiPassOCR(e.target.result);
-  };
-  reader.readAsDataURL(file);
-}
-
-// Create multiple preprocessed versions of the image
-function createVariants(imageData) {
-  return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
-      const variants = [];
-
-      // Variant 1: 2x upscale + gentle contrast (good for handwriting)
-      variants.push(processCanvas(img, 2.0, 1.8, 120, false));
-
-      // Variant 2: 2x upscale + strong contrast + threshold (LCD white bg)
-      variants.push(processCanvas(img, 2.0, 3.0, 160, true));
-
-      // Variant 3: 2x upscale + inverted threshold (LCD dark bg)
-      variants.push(processCanvas(img, 2.0, 3.0, 100, true));
-
-      // Variant 4: 3x upscale + medium contrast (small text)
-      variants.push(processCanvas(img, 3.0, 2.0, 130, false));
-
-      resolve(variants);
+      cropState.img = img;
+      cropState.hasCrop = false;
+      setupCropCanvas(img);
+      document.getElementById('cropSection').style.display = 'block';
+      document.getElementById('ocrStatus').className = 'ocr-status';
+      document.getElementById('ocrResults').className = 'ocr-results';
+      document.getElementById('ocrResults').innerHTML = '';
+      document.getElementById('btnConfirmCrop').disabled = true;
     };
-    img.src = imageData;
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+  // Reset file input so same file can be selected again
+  event.target.value = '';
+}
+
+function setupCropCanvas(img) {
+  const canvas = document.getElementById('cropCanvas');
+  const dpr = window.devicePixelRatio || 1;
+
+  // Fit canvas to container width
+  const containerWidth = canvas.parentElement.clientWidth;
+  const scale = containerWidth / img.width;
+  const displayH = img.height * scale;
+
+  canvas.style.height = displayH + 'px';
+  canvas.width = containerWidth * dpr;
+  canvas.height = displayH * dpr;
+
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.drawImage(img, 0, 0, containerWidth, displayH);
+
+  // Store scale info
+  cropState.displayScale = scale;
+  cropState.dpr = dpr;
+  cropState.canvasW = containerWidth;
+  cropState.canvasH = displayH;
+
+  // Touch/mouse events for crop selection
+  canvas.onpointerdown = (e) => {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    cropState.startX = e.clientX - rect.left;
+    cropState.startY = e.clientY - rect.top;
+    cropState.dragging = true;
+    cropState.hasCrop = false;
+  };
+
+  canvas.onpointermove = (e) => {
+    if (!cropState.dragging) return;
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    cropState.endX = e.clientX - rect.left;
+    cropState.endY = e.clientY - rect.top;
+    drawCropOverlay();
+  };
+
+  canvas.onpointerup = (e) => {
+    if (!cropState.dragging) return;
+    cropState.dragging = false;
+    const rect = canvas.getBoundingClientRect();
+    cropState.endX = e.clientX - rect.left;
+    cropState.endY = e.clientY - rect.top;
+
+    // Check if crop area is large enough
+    const w = Math.abs(cropState.endX - cropState.startX);
+    const h = Math.abs(cropState.endY - cropState.startY);
+    if (w > 20 && h > 20) {
+      cropState.hasCrop = true;
+      document.getElementById('btnConfirmCrop').disabled = false;
+    }
+    drawCropOverlay();
+  };
+
+  // Prevent scrolling while drawing
+  canvas.ontouchmove = (e) => { if (cropState.dragging) e.preventDefault(); };
+}
+
+function drawCropOverlay() {
+  const canvas = document.getElementById('cropCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = cropState.dpr;
+
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.scale(dpr, dpr);
+
+  // Redraw image
+  ctx.drawImage(cropState.img, 0, 0, cropState.canvasW, cropState.canvasH);
+
+  if (!cropState.startX && !cropState.endX) return;
+
+  const x1 = Math.min(cropState.startX, cropState.endX);
+  const y1 = Math.min(cropState.startY, cropState.endY);
+  const w = Math.abs(cropState.endX - cropState.startX);
+  const h = Math.abs(cropState.endY - cropState.startY);
+
+  // Dim outside area
+  ctx.fillStyle = 'rgba(0,0,0,0.5)';
+  ctx.fillRect(0, 0, cropState.canvasW, y1);
+  ctx.fillRect(0, y1 + h, cropState.canvasW, cropState.canvasH - y1 - h);
+  ctx.fillRect(0, y1, x1, h);
+  ctx.fillRect(x1 + w, y1, cropState.canvasW - x1 - w, h);
+
+  // Draw crop border
+  ctx.strokeStyle = '#ff6f00';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(x1, y1, w, h);
+
+  // Corner handles
+  ctx.fillStyle = '#ff6f00';
+  const hs = 6;
+  [[x1,y1],[x1+w,y1],[x1,y1+h],[x1+w,y1+h]].forEach(([cx,cy]) => {
+    ctx.fillRect(cx-hs, cy-hs, hs*2, hs*2);
   });
 }
 
-function processCanvas(img, scale, contrast, threshold, doThreshold) {
-  const canvas = document.createElement('canvas');
-  canvas.width = Math.round(img.width * scale);
-  canvas.height = Math.round(img.height * scale);
-  const ctx = canvas.getContext('2d');
+function resetCrop() {
+  cropState.hasCrop = false;
+  cropState.startX = cropState.startY = cropState.endX = cropState.endY = 0;
+  document.getElementById('btnConfirmCrop').disabled = true;
+  setupCropCanvas(cropState.img);
+}
 
-  // Upscale with smooth interpolation
+function confirmCrop() {
+  if (!cropState.hasCrop || !cropState.img) return;
+
+  // Calculate crop coordinates in original image space
+  const scale = cropState.displayScale;
+  const sx = Math.min(cropState.startX, cropState.endX) / scale;
+  const sy = Math.min(cropState.startY, cropState.endY) / scale;
+  const sw = Math.abs(cropState.endX - cropState.startX) / scale;
+  const sh = Math.abs(cropState.endY - cropState.startY) / scale;
+
+  // Crop and upscale for OCR
+  const cropCanvas = document.createElement('canvas');
+  const upscale = Math.max(3, Math.min(6, 1500 / sw)); // Target ~1500px wide
+  cropCanvas.width = Math.round(sw * upscale);
+  cropCanvas.height = Math.round(sh * upscale);
+  const ctx = cropCanvas.getContext('2d');
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
-  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  ctx.drawImage(cropState.img, sx, sy, sw, sh, 0, 0, cropCanvas.width, cropCanvas.height);
+
+  // Create multiple enhanced versions of cropped area
+  const variants = [];
+
+  // Version A: high contrast grayscale (good for LCD)
+  variants.push(enhanceCrop(cropCanvas, 2.5, 140));
+  // Version B: medium contrast (good for handwriting)
+  variants.push(enhanceCrop(cropCanvas, 1.5, -1));
+  // Version C: very high contrast + different threshold
+  variants.push(enhanceCrop(cropCanvas, 3.5, 120));
+
+  // Original cropped (no enhancement)
+  variants.unshift(cropCanvas.toDataURL('image/png'));
+
+  runMultiOCR(variants);
+}
+
+function enhanceCrop(sourceCanvas, contrast, threshold) {
+  const canvas = document.createElement('canvas');
+  canvas.width = sourceCanvas.width;
+  canvas.height = sourceCanvas.height;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(sourceCanvas, 0, 0);
 
   const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const data = imgData.data;
+  const d = imgData.data;
 
-  for (let i = 0; i < data.length; i += 4) {
-    // Grayscale
-    let gray = 0.299 * data[i] + 0.587 * data[i+1] + 0.114 * data[i+2];
-
-    // Contrast enhancement
+  for (let i = 0; i < d.length; i += 4) {
+    let gray = 0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2];
     gray = ((gray - 128) * contrast) + 128;
     gray = Math.max(0, Math.min(255, gray));
-
-    // Optional threshold
-    if (doThreshold) {
-      gray = gray > threshold ? 255 : 0;
-    }
-
-    data[i] = data[i+1] = data[i+2] = Math.round(gray);
+    if (threshold > 0) gray = gray > threshold ? 255 : 0;
+    d[i] = d[i+1] = d[i+2] = Math.round(gray);
   }
 
   ctx.putImageData(imgData, 0, 0);
   return canvas.toDataURL('image/png');
 }
 
-async function multiPassOCR(originalImageData) {
+async function runMultiOCR(imageVariants) {
   const status = document.getElementById('ocrStatus');
   const results = document.getElementById('ocrResults');
 
   status.className = 'ocr-status loading';
-  status.innerHTML = '<span class="spinner"></span> 影像預處理中（多重增強）...';
   results.className = 'ocr-results';
   results.innerHTML = '';
 
+  const labels = ['裁切原圖', '高對比', '中對比', '超高對比'];
+  let bestParsed = [];
+  let allTexts = [];
+
   try {
-    // Create multiple image variants
-    const variants = await createVariants(originalImageData);
+    for (let i = 0; i < imageVariants.length; i++) {
+      status.innerHTML = `<span class="spinner"></span> 辨識中 (${i+1}/${imageVariants.length})...`;
 
-    // Tesseract config: restrict to digits and coordinate-related chars
-    const tessConfig = {
-      tessedit_char_whitelist: '0123456789.,-+:dDnNeEmMNE abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ°\'"',
-    };
-
-    // Run OCR on original + all variants
-    const allImages = [originalImageData, ...variants];
-    const labels = ['原圖', '增強A(手寫)', '增強B(LCD亮)', '增強C(LCD暗)', '增強D(放大)'];
-
-    let bestParsed = [];
-    let bestText = '';
-    let allTexts = [];
-
-    for (let i = 0; i < allImages.length; i++) {
-      status.innerHTML = `<span class="spinner"></span> 辨識中 (${i+1}/${allImages.length})...`;
-
-      const result = await Tesseract.recognize(allImages[i], 'eng', {
-        ...tessConfig,
+      const result = await Tesseract.recognize(imageVariants[i], 'eng', {
         logger: (m) => {
           if (m.status === 'recognizing text') {
             const pct = Math.round((m.progress || 0) * 100);
-            status.innerHTML = `<span class="spinner"></span> 辨識中 (${i+1}/${allImages.length}) ${pct}%`;
+            status.innerHTML = `<span class="spinner"></span> 辨識中 (${i+1}/${imageVariants.length}) ${pct}%`;
           }
         }
       });
 
       const text = result.data.text;
-      allTexts.push(`[${labels[i]}]\n${text.trim()}`);
+      allTexts.push(`[${labels[i]}] ${text.trim()}`);
       console.log(`=== OCR ${labels[i]} ===\n`, text);
 
       const parsed = parseOcrText(text);
       if (parsed.length > 0 && bestParsed.length === 0) {
         bestParsed = parsed;
-        bestText = labels[i];
-        // Found coordinates, we can stop early
+        status.className = 'ocr-status done';
+        status.textContent = `找到 ${parsed.length} 組座標 (${labels[i]})，請確認`;
         break;
       }
     }
 
     ocrParsedPoints = bestParsed;
 
-    // Show raw OCR text from all attempts
-    const rawDiv = `<div style="font-size:11px;color:#999;padding:8px;margin-top:8px;background:#f5f5f5;border-radius:8px;white-space:pre-wrap;word-break:break-all;max-height:150px;overflow:auto">OCR 結果：\n${allTexts.join('\n---\n')}</div>`;
+    const rawDiv = `<div style="font-size:11px;color:#999;padding:8px;margin-top:8px;background:#f5f5f5;border-radius:8px;white-space:pre-wrap;word-break:break-all;max-height:150px;overflow:auto">OCR 文字：\n${allTexts.join('\n---\n')}</div>`;
 
     if (bestParsed.length > 0) {
-      status.className = 'ocr-status done';
-      status.textContent = `找到 ${bestParsed.length} 組座標 (${bestText})，請確認`;
       renderOcrResults(rawDiv);
     } else {
       status.className = 'ocr-status error';
-      status.innerHTML = '未找到座標數值<br><small style="font-weight:normal">LCD 螢幕辨識困難，建議用手動輸入或「裁切螢幕區域後再上傳」</small>';
+      status.innerHTML = '未找到座標<br><small style="font-weight:normal">試試框選更精確的數字區域，或手動輸入</small>';
       results.className = 'ocr-results show';
       results.innerHTML = rawDiv;
     }
   } catch(e) {
     status.className = 'ocr-status error';
     status.textContent = '辨識失敗: ' + e.message;
-    console.error(e);
   }
 }
 
