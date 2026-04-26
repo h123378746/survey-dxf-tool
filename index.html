@@ -795,110 +795,210 @@ function handleImage(event) {
   reader.onload = (e) => {
     img.src = e.target.result;
     img.style.display = 'block';
-    runOCR(e.target.result);
+    // Preprocess image then OCR
+    preprocessAndOCR(e.target.result);
   };
   reader.readAsDataURL(file);
 }
 
-async function runOCR(imageData) {
+// Image preprocessing: enhance contrast for LCD screens
+function preprocessImage(imageData) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+
+      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = imgData.data;
+
+      // Convert to grayscale and apply high contrast + threshold
+      for (let i = 0; i < data.length; i += 4) {
+        // Grayscale
+        const gray = 0.299 * data[i] + 0.587 * data[i+1] + 0.114 * data[i+2];
+
+        // Increase contrast: stretch the range
+        let v = ((gray - 128) * 2.5) + 128;
+        v = Math.max(0, Math.min(255, v));
+
+        // Adaptive threshold: make it more black/white
+        v = v > 140 ? 255 : 0;
+
+        data[i] = data[i+1] = data[i+2] = v;
+      }
+
+      ctx.putImageData(imgData, 0, 0);
+      resolve(canvas.toDataURL('image/png'));
+    };
+    img.src = imageData;
+  });
+}
+
+async function preprocessAndOCR(originalImageData) {
   const status = document.getElementById('ocrStatus');
   const results = document.getElementById('ocrResults');
 
   status.className = 'ocr-status loading';
-  status.innerHTML = '<span class="spinner"></span> 正在辨識中，請稍候...';
+  status.innerHTML = '<span class="spinner"></span> 影像預處理中...';
   results.className = 'ocr-results';
   results.innerHTML = '';
 
+  // Run OCR on both original and preprocessed image, use the better result
+  const preprocessed = await preprocessImage(originalImageData);
+
+  status.innerHTML = '<span class="spinner"></span> 正在辨識中，請稍候...';
+
   try {
-    const result = await Tesseract.recognize(imageData, 'eng', {
-      logger: (m) => {
-        if (m.status === 'recognizing text') {
-          const pct = Math.round((m.progress || 0) * 100);
-          status.innerHTML = `<span class="spinner"></span> 辨識中... ${pct}%`;
+    // Run OCR on both versions in parallel
+    const [resultOrig, resultPre] = await Promise.all([
+      Tesseract.recognize(originalImageData, 'eng', {
+        logger: (m) => {
+          if (m.status === 'recognizing text') {
+            const pct = Math.round((m.progress || 0) * 100);
+            status.innerHTML = `<span class="spinner"></span> 辨識中... ${pct}%`;
+          }
         }
-      }
-    });
+      }),
+      Tesseract.recognize(preprocessed, 'eng')
+    ]);
 
-    const text = result.data.text;
-    console.log('OCR raw text:', text);
+    const textOrig = resultOrig.data.text;
+    const textPre = resultPre.data.text;
 
-    // Parse coordinates from OCR text
-    ocrParsedPoints = parseOcrText(text);
+    console.log('=== OCR Original ===\n', textOrig);
+    console.log('=== OCR Preprocessed ===\n', textPre);
 
-    if (ocrParsedPoints.length > 0) {
+    // Try parsing both, use whichever finds coordinates
+    const parsedOrig = parseOcrText(textOrig);
+    const parsedPre = parseOcrText(textPre);
+
+    // Pick the result that found coordinates (prefer preprocessed for LCD screens)
+    let parsed, usedText;
+    if (parsedPre.length > 0) {
+      parsed = parsedPre;
+      usedText = textPre;
+    } else if (parsedOrig.length > 0) {
+      parsed = parsedOrig;
+      usedText = textOrig;
+    } else {
+      parsed = [];
+      usedText = textOrig;
+    }
+
+    ocrParsedPoints = parsed;
+
+    // Always show raw OCR text for reference
+    const rawDiv = `<div style="font-size:11px;color:#999;padding:8px;margin-top:8px;background:#f5f5f5;border-radius:8px;white-space:pre-wrap;word-break:break-all;max-height:120px;overflow:auto">OCR 原始文字：\n原圖: ${textOrig.trim()}\n---\n增強: ${textPre.trim()}</div>`;
+
+    if (parsed.length > 0) {
       status.className = 'ocr-status done';
-      status.textContent = `找到 ${ocrParsedPoints.length} 組座標，請確認後加入`;
-      renderOcrResults();
+      status.textContent = `找到 ${parsed.length} 組座標，請確認後加入`;
+      renderOcrResults(rawDiv);
     } else {
       status.className = 'ocr-status error';
       status.textContent = '未找到座標數值，請嘗試手動輸入或重新拍照';
-      // Show raw text for debugging
       results.className = 'ocr-results show';
-      results.innerHTML = `<div style="font-size:12px;color:#999;padding:8px;background:#f5f5f5;border-radius:8px;white-space:pre-wrap;word-break:break-all">OCR 原始文字：\n${text}</div>`;
+      results.innerHTML = rawDiv;
     }
   } catch(e) {
     status.className = 'ocr-status error';
     status.textContent = '辨識失敗: ' + e.message;
+    console.error(e);
   }
 }
 
 function parseOcrText(text) {
   const found = [];
-  const lines = text.split('\n');
+  const lines = text.split('\n').map(l => l.trim()).filter(l => l);
 
-  console.log('=== OCR Parse Start ===');
-  console.log('Lines:', lines);
+  console.log('=== Parsing lines ===', lines);
 
-  // Strategy 1: Total station screen - ONLY look for dN: and dE: lines
-  // Match patterns like: dN: 100.515 m  or  dN:100.515  or  dN 100.515
+  // ---- Strategy 1: Find explicit dN: / dE: labels ----
   let foundDN = null;
   let foundDE = null;
   for (const line of lines) {
-    // Must have dN or dE label explicitly
-    const dnMatch = line.match(/dN\s*[:：]\s*([+-]?\d+\.\d+)/i);
-    const deMatch = line.match(/dE\s*[:：]\s*([+-]?\d+\.\d+)/i);
+    // Match: dN: 100.515  or  dN:100.515 m  or  dN 100.515
+    // Also handle OCR misreads: "dN;" "dN." "dn:" etc.
+    const dnMatch = line.match(/d\s*N\s*[:;：.]\s*([+-]?\d+[.,]\d+)/i);
+    const deMatch = line.match(/d\s*E\s*[:;：.]\s*([+-]?\d+[.,]\d+)/i);
 
     if (dnMatch) {
-      foundDN = parseFloat(dnMatch[1]);
-      console.log('Found dN:', foundDN, 'from line:', line.trim());
+      foundDN = parseFloat(dnMatch[1].replace(',', '.'));
+      console.log('Strategy1 dN:', foundDN, '<-', line);
     }
     if (deMatch) {
-      foundDE = parseFloat(deMatch[1]);
-      console.log('Found dE:', foundDE, 'from line:', line.trim());
+      foundDE = parseFloat(deMatch[1].replace(',', '.'));
+      console.log('Strategy1 dE:', foundDE, '<-', line);
     }
   }
-  // Only return if we found BOTH dN and dE
   if (foundDN !== null && foundDE !== null) {
     found.push({ dN: foundDN, dE: foundDE });
     return found;
   }
 
-  // Strategy 2: Handwritten - collect numbers that look like coordinates
-  // A valid coordinate number must have a decimal point and be like XX.XXX
-  // (at least 2 digits before decimal, at least 1 after)
-  // Collect them in order, then pair: odd=dN, even=dE
+  // ---- Strategy 2: Total station without labels ----
+  // Look for lines containing a number followed by "m" (meters)
+  // The screen always shows 5 values: HR, dHR, dN, dE, dZ
+  // We want the 3rd and 4th "number m" values
+  const meterValues = [];
+  for (const line of lines) {
+    // Match: 100.515 m  or  100.515m  or  100,515 m
+    const mMatch = line.match(/(\d+[.,]\d+)\s*m/i);
+    if (mMatch) {
+      const v = parseFloat(mMatch[1].replace(',', '.'));
+      if (v >= 0.001 && v < 100000) {
+        meterValues.push(v);
+        console.log('Strategy2 meter value:', v, '<-', line);
+      }
+    }
+  }
+  // Total station shows: [HR_dist, dHR_dist, dN, dE, dZ] or [dN, dE, dZ]
+  if (meterValues.length >= 3) {
+    // If 5 values: take index 2,3 (dN, dE)
+    // If 3 values: take index 0,1 (dN, dE) - the 3rd is dZ
+    let dnIdx, deIdx;
+    if (meterValues.length >= 5) {
+      dnIdx = 2; deIdx = 3;
+    } else if (meterValues.length === 4) {
+      dnIdx = 1; deIdx = 2;
+    } else {
+      // 3 values: first two are dN, dE
+      dnIdx = 0; deIdx = 1;
+    }
+    found.push({ dN: meterValues[dnIdx], dE: meterValues[deIdx] });
+    console.log('Strategy2 result: dN=', meterValues[dnIdx], 'dE=', meterValues[deIdx]);
+    return found;
+  }
+
+  // ---- Strategy 3: Handwritten coordinates ----
+  // Collect all decimal numbers (must have decimal point)
+  // Filter: must be reasonable coordinate size (>= 1.0)
+  // Ignore degree-like numbers (contain ° or ' or ")
   const coordNums = [];
   for (const line of lines) {
-    const clean = line.trim();
-    if (!clean) continue;
+    // Skip lines that look like angles (degrees/minutes/seconds)
+    if (/[°'"']/.test(line)) continue;
+    // Skip lines that look like labels only
+    if (/^[a-zA-Z\s:]+$/.test(line)) continue;
 
-    // Match numbers with decimal point: e.g. 100.515, 12.336, 158.407
-    // Must have decimal point (to filter out noise like "1", "4", serial numbers)
-    const matches = clean.match(/\d+\.\d+/g);
+    // Match decimal numbers
+    const matches = line.match(/\d+[.,]\d+/g);
     if (matches) {
       for (const m of matches) {
-        const v = parseFloat(m);
-        // Valid coordinate range: typically 1.0 ~ 99999.999
-        // Filter out very small or suspiciously large numbers
+        const v = parseFloat(m.replace(',', '.'));
+        // Valid coordinate: at least 1.0, not too large
         if (v >= 1.0 && v < 100000) {
           coordNums.push(v);
-          console.log('Found coordinate number:', v, 'from line:', clean);
+          console.log('Strategy3 number:', v, '<-', line);
         }
       }
     }
   }
 
-  // Pair consecutive numbers: first=dN, second=dE
+  // Pair consecutive: 1st=dN, 2nd=dE, 3rd=dN, 4th=dE...
   for (let i = 0; i + 1 < coordNums.length; i += 2) {
     found.push({ dN: coordNums[i], dE: coordNums[i + 1] });
   }
@@ -906,21 +1006,29 @@ function parseOcrText(text) {
   return found;
 }
 
-function renderOcrResults() {
+function renderOcrResults(rawDiv) {
   const results = document.getElementById('ocrResults');
   results.className = 'ocr-results show';
 
   let html = ocrParsedPoints.map((p, i) => `
     <div class="ocr-result-item" id="ocrItem${i}">
       <span style="font-weight:600;color:var(--primary);min-width:24px">${i + 1}</span>
-      <input type="number" step="any" value="${p.dN}" id="ocrDN${i}" placeholder="dN">
-      <span style="color:#999">,</span>
-      <input type="number" step="any" value="${p.dE}" id="ocrDE${i}" placeholder="dE">
+      <div style="display:flex;flex-direction:column;gap:4px;flex:1">
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="font-size:12px;color:var(--text-secondary);width:24px">dN</span>
+          <input type="number" step="any" value="${p.dN}" id="ocrDN${i}" placeholder="dN" style="flex:1">
+        </div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="font-size:12px;color:var(--text-secondary);width:24px">dE</span>
+          <input type="number" step="any" value="${p.dE}" id="ocrDE${i}" placeholder="dE" style="flex:1">
+        </div>
+      </div>
       <button class="remove-ocr" onclick="removeOcrItem(${i})">&#10005;</button>
     </div>
   `).join('');
 
   html += `<button class="btn-add-ocr" onclick="addOcrPoints()">&#10003; 全部加入點位列表</button>`;
+  if (rawDiv) html += rawDiv;
   results.innerHTML = html;
 }
 

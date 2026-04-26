@@ -1,4 +1,4 @@
-const CACHE_NAME = 'survey-dxf-v1';
+const CACHE_NAME = 'survey-dxf-v2';
 const ASSETS = [
   './',
   './index.html',
