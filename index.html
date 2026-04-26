@@ -558,10 +558,11 @@ body {
     <div class="camera-section">
       <h3>&#128161; 辨識說明</h3>
       <ul style="font-size:13px;color:var(--text-secondary);padding-left:20px;line-height:1.8">
-        <li>支援全站儀螢幕照片（自動抓 dN: / dE: 數值）</li>
-        <li>支援手寫座標紙（每行一組數字）</li>
+        <li><b>全站儀螢幕</b>：只抓 dN: 和 dE: 的數值，忽略其他</li>
+        <li><b>手寫座標紙</b>：只抓有小數點的數字（如 100.515）<br>
+            上面一行 = dN，下面一行 = dE，兩兩配對</li>
         <li>辨識後可手動修正再加入點位</li>
-        <li>OCR 引擎在瀏覽器端執行，不上傳照片</li>
+        <li>照片不上傳，OCR 在手機端執行</li>
       </ul>
     </div>
   </div>
@@ -845,50 +846,61 @@ function parseOcrText(text) {
   const found = [];
   const lines = text.split('\n');
 
-  // Strategy 1: Look for dN: xxx dE: xxx pattern (total station screen)
-  let currentDN = null;
-  for (const line of lines) {
-    const dnMatch = line.match(/dN[:\s]*([+-]?\d+\.?\d*)/i);
-    const deMatch = line.match(/dE[:\s]*([+-]?\d+\.?\d*)/i);
+  console.log('=== OCR Parse Start ===');
+  console.log('Lines:', lines);
 
-    if (dnMatch) currentDN = parseFloat(dnMatch[1]);
-    if (deMatch && currentDN !== null) {
-      found.push({ dN: currentDN, dE: parseFloat(deMatch[1]) });
-      currentDN = null;
+  // Strategy 1: Total station screen - ONLY look for dN: and dE: lines
+  // Match patterns like: dN: 100.515 m  or  dN:100.515  or  dN 100.515
+  let foundDN = null;
+  let foundDE = null;
+  for (const line of lines) {
+    // Must have dN or dE label explicitly
+    const dnMatch = line.match(/dN\s*[:：]\s*([+-]?\d+\.\d+)/i);
+    const deMatch = line.match(/dE\s*[:：]\s*([+-]?\d+\.\d+)/i);
+
+    if (dnMatch) {
+      foundDN = parseFloat(dnMatch[1]);
+      console.log('Found dN:', foundDN, 'from line:', line.trim());
+    }
+    if (deMatch) {
+      foundDE = parseFloat(deMatch[1]);
+      console.log('Found dE:', foundDE, 'from line:', line.trim());
     }
   }
+  // Only return if we found BOTH dN and dE
+  if (foundDN !== null && foundDE !== null) {
+    found.push({ dN: foundDN, dE: foundDE });
+    return found;
+  }
 
-  if (found.length > 0) return found;
-
-  // Strategy 2: Look for "number,number" or "number number" patterns per line
+  // Strategy 2: Handwritten - collect numbers that look like coordinates
+  // A valid coordinate number must have a decimal point and be like XX.XXX
+  // (at least 2 digits before decimal, at least 1 after)
+  // Collect them in order, then pair: odd=dN, even=dE
+  const coordNums = [];
   for (const line of lines) {
-    const clean = line.trim().replace(/\uff0c/g, ',');
-    // Match: number separator number (comma, space, or tab)
-    const match = clean.match(/([+-]?\d+\.?\d*)\s*[,\s\t]+\s*([+-]?\d+\.?\d*)/);
-    if (match) {
-      const a = parseFloat(match[1]);
-      const b = parseFloat(match[2]);
-      if (!isNaN(a) && !isNaN(b) && (a > 1 || b > 1)) {
-        found.push({ dN: a, dE: b });
+    const clean = line.trim();
+    if (!clean) continue;
+
+    // Match numbers with decimal point: e.g. 100.515, 12.336, 158.407
+    // Must have decimal point (to filter out noise like "1", "4", serial numbers)
+    const matches = clean.match(/\d+\.\d+/g);
+    if (matches) {
+      for (const m of matches) {
+        const v = parseFloat(m);
+        // Valid coordinate range: typically 1.0 ~ 99999.999
+        // Filter out very small or suspiciously large numbers
+        if (v >= 1.0 && v < 100000) {
+          coordNums.push(v);
+          console.log('Found coordinate number:', v, 'from line:', clean);
+        }
       }
     }
   }
 
-  if (found.length > 0) return found;
-
-  // Strategy 3: Collect all standalone numbers and pair them
-  const allNums = [];
-  const numPattern = /\d+\.?\d*/g;
-  let m;
-  for (const line of lines) {
-    while ((m = numPattern.exec(line)) !== null) {
-      const v = parseFloat(m[0]);
-      if (v > 1) allNums.push(v); // filter tiny numbers that are probably noise
-    }
-  }
-  // Pair consecutive numbers as dN, dE
-  for (let i = 0; i + 1 < allNums.length; i += 2) {
-    found.push({ dN: allNums[i], dE: allNums[i + 1] });
+  // Pair consecutive numbers: first=dN, second=dE
+  for (let i = 0; i + 1 < coordNums.length; i += 2) {
+    found.push({ dN: coordNums[i], dE: coordNums[i + 1] });
   }
 
   return found;
