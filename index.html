@@ -1416,7 +1416,7 @@ function drawPreview() {
 }
 
 // ============ DXF Generator ============
-// Annotation scale: coordinates are ×100, so annotations also ×100
+// Annotation scale: coordinates are ×100, annotations scale proportionally
 const ANNO_SCALE = 100;
 const RADIUS = 8 * ANNO_SCALE;
 const TEXT_HEIGHT = 2.5 * ANNO_SCALE;
@@ -1498,8 +1498,8 @@ function buildDxfString(pts) {
   let handleNum = 0x100;
   function h() { return (handleNum++).toString(16).toUpperCase(); }
 
-  // Owner handle for model space block record = "1F" in ezdxf template
-  const OWNER = '1F';
+  // Owner handle for model space block record = "17" in ezdxf template
+  const OWNER = '17';
 
   // Build R2010 entities with proper AcDb subclass markers
   let entityStr = '';
