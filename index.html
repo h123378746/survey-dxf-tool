@@ -795,111 +795,134 @@ function handleImage(event) {
   reader.onload = (e) => {
     img.src = e.target.result;
     img.style.display = 'block';
-    // Preprocess image then OCR
-    preprocessAndOCR(e.target.result);
+    multiPassOCR(e.target.result);
   };
   reader.readAsDataURL(file);
 }
 
-// Image preprocessing: enhance contrast for LCD screens
-function preprocessImage(imageData) {
+// Create multiple preprocessed versions of the image
+function createVariants(imageData) {
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = img.width;
-      canvas.height = img.height;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0);
+      const variants = [];
 
-      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const data = imgData.data;
+      // Variant 1: 2x upscale + gentle contrast (good for handwriting)
+      variants.push(processCanvas(img, 2.0, 1.8, 120, false));
 
-      // Convert to grayscale and apply high contrast + threshold
-      for (let i = 0; i < data.length; i += 4) {
-        // Grayscale
-        const gray = 0.299 * data[i] + 0.587 * data[i+1] + 0.114 * data[i+2];
+      // Variant 2: 2x upscale + strong contrast + threshold (LCD white bg)
+      variants.push(processCanvas(img, 2.0, 3.0, 160, true));
 
-        // Increase contrast: stretch the range
-        let v = ((gray - 128) * 2.5) + 128;
-        v = Math.max(0, Math.min(255, v));
+      // Variant 3: 2x upscale + inverted threshold (LCD dark bg)
+      variants.push(processCanvas(img, 2.0, 3.0, 100, true));
 
-        // Adaptive threshold: make it more black/white
-        v = v > 140 ? 255 : 0;
+      // Variant 4: 3x upscale + medium contrast (small text)
+      variants.push(processCanvas(img, 3.0, 2.0, 130, false));
 
-        data[i] = data[i+1] = data[i+2] = v;
-      }
-
-      ctx.putImageData(imgData, 0, 0);
-      resolve(canvas.toDataURL('image/png'));
+      resolve(variants);
     };
     img.src = imageData;
   });
 }
 
-async function preprocessAndOCR(originalImageData) {
+function processCanvas(img, scale, contrast, threshold, doThreshold) {
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(img.width * scale);
+  canvas.height = Math.round(img.height * scale);
+  const ctx = canvas.getContext('2d');
+
+  // Upscale with smooth interpolation
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = imgData.data;
+
+  for (let i = 0; i < data.length; i += 4) {
+    // Grayscale
+    let gray = 0.299 * data[i] + 0.587 * data[i+1] + 0.114 * data[i+2];
+
+    // Contrast enhancement
+    gray = ((gray - 128) * contrast) + 128;
+    gray = Math.max(0, Math.min(255, gray));
+
+    // Optional threshold
+    if (doThreshold) {
+      gray = gray > threshold ? 255 : 0;
+    }
+
+    data[i] = data[i+1] = data[i+2] = Math.round(gray);
+  }
+
+  ctx.putImageData(imgData, 0, 0);
+  return canvas.toDataURL('image/png');
+}
+
+async function multiPassOCR(originalImageData) {
   const status = document.getElementById('ocrStatus');
   const results = document.getElementById('ocrResults');
 
   status.className = 'ocr-status loading';
-  status.innerHTML = '<span class="spinner"></span> 影像預處理中...';
+  status.innerHTML = '<span class="spinner"></span> 影像預處理中（多重增強）...';
   results.className = 'ocr-results';
   results.innerHTML = '';
 
-  // Run OCR on both original and preprocessed image, use the better result
-  const preprocessed = await preprocessImage(originalImageData);
-
-  status.innerHTML = '<span class="spinner"></span> 正在辨識中，請稍候...';
-
   try {
-    // Run OCR on both versions in parallel
-    const [resultOrig, resultPre] = await Promise.all([
-      Tesseract.recognize(originalImageData, 'eng', {
+    // Create multiple image variants
+    const variants = await createVariants(originalImageData);
+
+    // Tesseract config: restrict to digits and coordinate-related chars
+    const tessConfig = {
+      tessedit_char_whitelist: '0123456789.,-+:dDnNeEmMNE abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ°\'"',
+    };
+
+    // Run OCR on original + all variants
+    const allImages = [originalImageData, ...variants];
+    const labels = ['原圖', '增強A(手寫)', '增強B(LCD亮)', '增強C(LCD暗)', '增強D(放大)'];
+
+    let bestParsed = [];
+    let bestText = '';
+    let allTexts = [];
+
+    for (let i = 0; i < allImages.length; i++) {
+      status.innerHTML = `<span class="spinner"></span> 辨識中 (${i+1}/${allImages.length})...`;
+
+      const result = await Tesseract.recognize(allImages[i], 'eng', {
+        ...tessConfig,
         logger: (m) => {
           if (m.status === 'recognizing text') {
             const pct = Math.round((m.progress || 0) * 100);
-            status.innerHTML = `<span class="spinner"></span> 辨識中... ${pct}%`;
+            status.innerHTML = `<span class="spinner"></span> 辨識中 (${i+1}/${allImages.length}) ${pct}%`;
           }
         }
-      }),
-      Tesseract.recognize(preprocessed, 'eng')
-    ]);
+      });
 
-    const textOrig = resultOrig.data.text;
-    const textPre = resultPre.data.text;
+      const text = result.data.text;
+      allTexts.push(`[${labels[i]}]\n${text.trim()}`);
+      console.log(`=== OCR ${labels[i]} ===\n`, text);
 
-    console.log('=== OCR Original ===\n', textOrig);
-    console.log('=== OCR Preprocessed ===\n', textPre);
-
-    // Try parsing both, use whichever finds coordinates
-    const parsedOrig = parseOcrText(textOrig);
-    const parsedPre = parseOcrText(textPre);
-
-    // Pick the result that found coordinates (prefer preprocessed for LCD screens)
-    let parsed, usedText;
-    if (parsedPre.length > 0) {
-      parsed = parsedPre;
-      usedText = textPre;
-    } else if (parsedOrig.length > 0) {
-      parsed = parsedOrig;
-      usedText = textOrig;
-    } else {
-      parsed = [];
-      usedText = textOrig;
+      const parsed = parseOcrText(text);
+      if (parsed.length > 0 && bestParsed.length === 0) {
+        bestParsed = parsed;
+        bestText = labels[i];
+        // Found coordinates, we can stop early
+        break;
+      }
     }
 
-    ocrParsedPoints = parsed;
+    ocrParsedPoints = bestParsed;
 
-    // Always show raw OCR text for reference
-    const rawDiv = `<div style="font-size:11px;color:#999;padding:8px;margin-top:8px;background:#f5f5f5;border-radius:8px;white-space:pre-wrap;word-break:break-all;max-height:120px;overflow:auto">OCR 原始文字：\n原圖: ${textOrig.trim()}\n---\n增強: ${textPre.trim()}</div>`;
+    // Show raw OCR text from all attempts
+    const rawDiv = `<div style="font-size:11px;color:#999;padding:8px;margin-top:8px;background:#f5f5f5;border-radius:8px;white-space:pre-wrap;word-break:break-all;max-height:150px;overflow:auto">OCR 結果：\n${allTexts.join('\n---\n')}</div>`;
 
-    if (parsed.length > 0) {
+    if (bestParsed.length > 0) {
       status.className = 'ocr-status done';
-      status.textContent = `找到 ${parsed.length} 組座標，請確認後加入`;
+      status.textContent = `找到 ${bestParsed.length} 組座標 (${bestText})，請確認`;
       renderOcrResults(rawDiv);
     } else {
       status.className = 'ocr-status error';
-      status.textContent = '未找到座標數值，請嘗試手動輸入或重新拍照';
+      status.innerHTML = '未找到座標數值<br><small style="font-weight:normal">LCD 螢幕辨識困難，建議用手動輸入或「裁切螢幕區域後再上傳」</small>';
       results.className = 'ocr-results show';
       results.innerHTML = rawDiv;
     }
@@ -914,24 +937,20 @@ function parseOcrText(text) {
   const found = [];
   const lines = text.split('\n').map(l => l.trim()).filter(l => l);
 
-  console.log('=== Parsing lines ===', lines);
-
   // ---- Strategy 1: Find explicit dN: / dE: labels ----
   let foundDN = null;
   let foundDE = null;
   for (const line of lines) {
-    // Match: dN: 100.515  or  dN:100.515 m  or  dN 100.515
-    // Also handle OCR misreads: "dN;" "dN." "dn:" etc.
-    const dnMatch = line.match(/d\s*N\s*[:;：.]\s*([+-]?\d+[.,]\d+)/i);
-    const deMatch = line.match(/d\s*E\s*[:;：.]\s*([+-]?\d+[.,]\d+)/i);
+    // Very tolerant matching for OCR misreads of dN/dE
+    // dN: dN; dN. d N: DN: aN: etc.
+    const dnMatch = line.match(/[dDaA]\s*[nN]\s*[:;：.,]\s*([+-]?\d+[.,]\d+)/);
+    const deMatch = line.match(/[dDaA]\s*[eE]\s*[:;：.,]\s*([+-]?\d+[.,]\d+)/);
 
     if (dnMatch) {
       foundDN = parseFloat(dnMatch[1].replace(',', '.'));
-      console.log('Strategy1 dN:', foundDN, '<-', line);
     }
     if (deMatch) {
       foundDE = parseFloat(deMatch[1].replace(',', '.'));
-      console.log('Strategy1 dE:', foundDE, '<-', line);
     }
   }
   if (foundDN !== null && foundDE !== null) {
@@ -939,66 +958,57 @@ function parseOcrText(text) {
     return found;
   }
 
-  // ---- Strategy 2: Total station without labels ----
-  // Look for lines containing a number followed by "m" (meters)
-  // The screen always shows 5 values: HR, dHR, dN, dE, dZ
-  // We want the 3rd and 4th "number m" values
+  // ---- Strategy 2: Numbers followed by "m" (meter unit) ----
+  // Total station shows values like: 136.781 m
   const meterValues = [];
   for (const line of lines) {
-    // Match: 100.515 m  or  100.515m  or  100,515 m
-    const mMatch = line.match(/(\d+[.,]\d+)\s*m/i);
-    if (mMatch) {
-      const v = parseFloat(mMatch[1].replace(',', '.'));
-      if (v >= 0.001 && v < 100000) {
-        meterValues.push(v);
-        console.log('Strategy2 meter value:', v, '<-', line);
+    // Match: 100.515 m  or  100.515m  or with comma
+    const mMatches = line.match(/(\d+[.,]\d+)\s*m\b/gi);
+    if (mMatches) {
+      for (const mm of mMatches) {
+        const numMatch = mm.match(/(\d+[.,]\d+)/);
+        if (numMatch) {
+          const v = parseFloat(numMatch[1].replace(',', '.'));
+          if (v >= 0.001 && v < 100000) {
+            meterValues.push(v);
+          }
+        }
       }
     }
   }
-  // Total station shows: [HR_dist, dHR_dist, dN, dE, dZ] or [dN, dE, dZ]
-  if (meterValues.length >= 3) {
-    // If 5 values: take index 2,3 (dN, dE)
-    // If 3 values: take index 0,1 (dN, dE) - the 3rd is dZ
+  if (meterValues.length >= 2) {
+    // Take 3rd & 4th if available (skip HR, dHR), otherwise take last two before dZ
     let dnIdx, deIdx;
     if (meterValues.length >= 5) {
       dnIdx = 2; deIdx = 3;
     } else if (meterValues.length === 4) {
       dnIdx = 1; deIdx = 2;
+    } else if (meterValues.length === 3) {
+      dnIdx = 0; deIdx = 1;
     } else {
-      // 3 values: first two are dN, dE
       dnIdx = 0; deIdx = 1;
     }
     found.push({ dN: meterValues[dnIdx], dE: meterValues[deIdx] });
-    console.log('Strategy2 result: dN=', meterValues[dnIdx], 'dE=', meterValues[deIdx]);
     return found;
   }
 
-  // ---- Strategy 3: Handwritten coordinates ----
-  // Collect all decimal numbers (must have decimal point)
-  // Filter: must be reasonable coordinate size (>= 1.0)
-  // Ignore degree-like numbers (contain ° or ' or ")
+  // ---- Strategy 3: Handwritten / general decimal numbers ----
   const coordNums = [];
   for (const line of lines) {
-    // Skip lines that look like angles (degrees/minutes/seconds)
+    // Skip angle lines
     if (/[°'"']/.test(line)) continue;
-    // Skip lines that look like labels only
-    if (/^[a-zA-Z\s:]+$/.test(line)) continue;
 
-    // Match decimal numbers
     const matches = line.match(/\d+[.,]\d+/g);
     if (matches) {
       for (const m of matches) {
         const v = parseFloat(m.replace(',', '.'));
-        // Valid coordinate: at least 1.0, not too large
         if (v >= 1.0 && v < 100000) {
           coordNums.push(v);
-          console.log('Strategy3 number:', v, '<-', line);
         }
       }
     }
   }
 
-  // Pair consecutive: 1st=dN, 2nd=dE, 3rd=dN, 4th=dE...
   for (let i = 0; i + 1 < coordNums.length; i += 2) {
     found.push({ dN: coordNums[i], dE: coordNums[i + 1] });
   }
