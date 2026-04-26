@@ -477,6 +477,81 @@ body {
   font-size: 16px;
 }
 
+/* Settings */
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-bottom: 1px solid #eee;
+}
+.setting-label { flex: 1; }
+.setting-name { display: block; font-size: 15px; font-weight: 500; }
+.setting-desc { display: block; font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+.setting-input {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.setting-input input {
+  width: 60px;
+  text-align: center;
+  padding: 8px;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  font-family: "SF Mono", monospace;
+}
+.setting-single {
+  width: 70px;
+  text-align: center;
+  padding: 8px;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  font-size: 15px;
+  font-family: "SF Mono", monospace;
+}
+.adj-btn {
+  width: 36px; height: 36px;
+  border: none;
+  background: var(--primary);
+  color: white;
+  border-radius: 50%;
+  font-size: 18px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.adj-btn:active { opacity: 0.7; }
+.toggle {
+  position: relative;
+  display: inline-block;
+  width: 48px; height: 26px;
+}
+.toggle input { opacity: 0; width: 0; height: 0; }
+.toggle-slider {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background: #ccc;
+  border-radius: 26px;
+  transition: 0.3s;
+}
+.toggle-slider:before {
+  content: '';
+  position: absolute;
+  height: 20px; width: 20px;
+  left: 3px; bottom: 3px;
+  background: white;
+  border-radius: 50%;
+  transition: 0.3s;
+}
+.toggle input:checked + .toggle-slider { background: var(--success); }
+.toggle input:checked + .toggle-slider:before { transform: translateX(22px); }
+
 /* Loading spinner */
 .spinner {
   display: inline-block;
@@ -510,8 +585,9 @@ body {
 
 <!-- Tabs -->
 <div class="tab-bar">
-  <button class="tab active" onclick="switchTab('points')" id="tabPoints">&#128205; 點位列表</button>
-  <button class="tab" onclick="switchTab('camera')" id="tabCamera">&#128247; 拍照辨識</button>
+  <button class="tab active" onclick="switchTab('points')" id="tabPoints">&#128205; 點位</button>
+  <button class="tab" onclick="switchTab('camera')" id="tabCamera">&#128247; 拍照</button>
+  <button class="tab" onclick="switchTab('settings')" id="tabSettings">&#9881; 設定</button>
 </div>
 
 <!-- Main -->
@@ -578,6 +654,60 @@ body {
         <li>框越精準（只框數字），辨識越準確</li>
         <li>照片不上傳，OCR 在手機端執行</li>
       </ul>
+    </div>
+  </div>
+
+  <!-- Tab 3: Settings -->
+  <div class="tab-content" id="contentSettings">
+    <div class="camera-section">
+      <h3>&#9881; 標註比例設定</h3>
+      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px">
+        調整 DXF 輸出的圓圈、文字、標註線大小。<br>
+        如果複製到工作圖後太小或太大，調整這裡。
+      </p>
+
+      <div class="setting-row">
+        <div class="setting-label">
+          <span class="setting-name">整體縮放倍數</span>
+          <span class="setting-desc">所有標註等比縮放</span>
+        </div>
+        <div class="setting-input">
+          <button class="adj-btn" onclick="adjScale(-0.5)">-</button>
+          <input type="number" id="setScale" step="0.1" min="0.1" value="1" onchange="saveSettings()">
+          <button class="adj-btn" onclick="adjScale(0.5)">+</button>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div class="setting-label">
+          <span class="setting-name">圓圈半徑</span>
+          <span class="setting-desc">基準值 (再乘以縮放倍數)</span>
+        </div>
+        <input type="number" class="setting-single" id="setRadius" step="1" value="8" onchange="saveSettings()">
+      </div>
+
+      <div class="setting-row">
+        <div class="setting-label">
+          <span class="setting-name">文字高度</span>
+          <span class="setting-desc">座標數字的大小</span>
+        </div>
+        <input type="number" class="setting-single" id="setTextH" step="0.5" value="2.5" onchange="saveSettings()">
+      </div>
+
+      <div class="setting-row">
+        <div class="setting-label">
+          <span class="setting-name">只輸出座標點</span>
+          <span class="setting-desc">不畫圓圈和標註線，只有 POINT</span>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="setPointsOnly" onchange="saveSettings()">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+
+      <div style="margin-top:16px;padding:12px;background:#e8f5e9;border-radius:8px;font-size:13px;color:#2e7d32">
+        <b>提示：</b>先用縮放倍數 = 1 產生一次，複製到工作圖看看大小差多少，再回來調整倍數。例如太小 5 倍就改成 5。
+      </div>
     </div>
   </div>
 
@@ -662,15 +792,44 @@ function showToast(msg) {
 function switchTab(name) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-  if (name === 'points') {
-    document.getElementById('tabPoints').classList.add('active');
-    document.getElementById('contentPoints').classList.add('active');
-    document.getElementById('fabGroup').style.display = 'flex';
-  } else {
-    document.getElementById('tabCamera').classList.add('active');
-    document.getElementById('contentCamera').classList.add('active');
-    document.getElementById('fabGroup').style.display = 'none';
-  }
+  document.getElementById('tab' + name.charAt(0).toUpperCase() + name.slice(1)).classList.add('active');
+  document.getElementById('content' + name.charAt(0).toUpperCase() + name.slice(1)).classList.add('active');
+  document.getElementById('fabGroup').style.display = (name === 'points') ? 'flex' : 'none';
+}
+
+// ============ Settings ============
+function loadSettings() {
+  try {
+    const s = JSON.parse(localStorage.getItem('survey_settings') || '{}');
+    if (s.scale) document.getElementById('setScale').value = s.scale;
+    if (s.radius) document.getElementById('setRadius').value = s.radius;
+    if (s.textH) document.getElementById('setTextH').value = s.textH;
+    if (s.pointsOnly) document.getElementById('setPointsOnly').checked = s.pointsOnly;
+  } catch(e) {}
+}
+
+function saveSettings() {
+  const s = {
+    scale: parseFloat(document.getElementById('setScale').value) || 1,
+    radius: parseFloat(document.getElementById('setRadius').value) || 8,
+    textH: parseFloat(document.getElementById('setTextH').value) || 2.5,
+    pointsOnly: document.getElementById('setPointsOnly').checked,
+  };
+  localStorage.setItem('survey_settings', JSON.stringify(s));
+}
+
+function getSettings() {
+  try {
+    return JSON.parse(localStorage.getItem('survey_settings') || '{}');
+  } catch(e) { return {}; }
+}
+
+function adjScale(delta) {
+  const el = document.getElementById('setScale');
+  let v = parseFloat(el.value) + delta;
+  if (v < 0.1) v = 0.1;
+  el.value = Math.round(v * 10) / 10;
+  saveSettings();
 }
 
 function renderList() {
@@ -1257,13 +1416,15 @@ function drawPreview() {
 }
 
 // ============ DXF Generator ============
-const RADIUS = 8;
-const TEXT_HEIGHT = 2.5;
-const STUB = 9.38;
-const DIAG_X = 10.02;
-const DIAG_Y = 9.44;
-const ARM = 18;
-const SAFE = 3;
+// Annotation scale: coordinates are ×100, so annotations also ×100
+const ANNO_SCALE = 100;
+const RADIUS = 8 * ANNO_SCALE;
+const TEXT_HEIGHT = 2.5 * ANNO_SCALE;
+const STUB = 9.38 * ANNO_SCALE;
+const DIAG_X = 10.02 * ANNO_SCALE;
+const DIAG_Y = 9.44 * ANNO_SCALE;
+const ARM = 18 * ANNO_SCALE;
+const SAFE = 3 * ANNO_SCALE;
 
 function textBox(x, y, text, vertical) {
   let w, h;
@@ -1320,10 +1481,18 @@ function chooseBest(candidates, usedBoxes, circles) {
 }
 
 function buildDxfString(pts) {
-  const circles = pts.map(p => [p.dE, p.dN, RADIUS]);
+  // Convert: instrument values × 100, then AutoCAD X=dE, Y=dN
+  const cPts = pts.map(p => ({
+    dN: p.dN * 100,
+    dE: p.dE * 100,
+    rawDN: p.dN,  // keep original for label text
+    rawDE: p.dE,
+  }));
+
+  const circles = cPts.map(p => [p.dE, p.dN, RADIUS]);
   const usedBoxes = [];
-  const centerX = pts.reduce((s, p) => s + p.dE, 0) / pts.length;
-  const centerY = pts.reduce((s, p) => s + p.dN, 0) / pts.length;
+  const centerX = cPts.reduce((s, p) => s + p.dE, 0) / cPts.length;
+  const centerY = cPts.reduce((s, p) => s + p.dN, 0) / cPts.length;
 
   // Handle counter for unique entity handles (hex, starting after template handles)
   let handleNum = 0x100;
@@ -1355,7 +1524,8 @@ function buildDxfString(pts) {
     entityStr += `  0\nTEXT\n  5\n${h()}\n330\n${OWNER}\n100\nAcDbEntity\n  8\n${layer}\n100\nAcDbText\n 10\n${px}\n 20\n${py}\n 30\n0.0\n 40\n${height}\n  1\n${text}\n 50\n${rotation}\n100\nAcDbText\n`;
   }
 
-  for (const pt of pts) {
+  for (const pt of cPts) {
+    // AutoCAD coordinates: X = dE×100, Y = dN×100
     const x = pt.dE, y = pt.dN;
 
     addCircle(x, y, RADIUS, 'CIRCLE');
@@ -1364,23 +1534,23 @@ function buildDxfString(pts) {
     const sx = x >= centerX ? 1 : -1;
     const sy = y >= centerY ? 1 : -1;
 
-    // dN label
+    // dN label - use original instrument value for display text
     const dnCands = [
-      makeDnLabel(x, y, pt.dN, sx, sy),
-      makeDnLabel(x, y, pt.dN, sx, -sy),
-      makeDnLabel(x, y, pt.dN, -sx, sy),
-      makeDnLabel(x, y, pt.dN, -sx, -sy),
+      makeDnLabel(x, y, pt.rawDN, sx, sy),
+      makeDnLabel(x, y, pt.rawDN, sx, -sy),
+      makeDnLabel(x, y, pt.rawDN, -sx, sy),
+      makeDnLabel(x, y, pt.rawDN, -sx, -sy),
     ];
     const dnL = chooseBest(dnCands, usedBoxes, circles);
     addPolyline(dnL.line, 'LEADER');
     addText(dnL.value, dnL.text[0], dnL.text[1], TEXT_HEIGHT, dnL.vertical ? 90 : 0, 'TEXT');
 
-    // dE label
+    // dE label - use original instrument value for display text
     const deCands = [
-      makeDeLabel(x, y, pt.dE, sx, sy),
-      makeDeLabel(x, y, pt.dE, -sx, sy),
-      makeDeLabel(x, y, pt.dE, sx, -sy),
-      makeDeLabel(x, y, pt.dE, -sx, -sy),
+      makeDeLabel(x, y, pt.rawDE, sx, sy),
+      makeDeLabel(x, y, pt.rawDE, -sx, sy),
+      makeDeLabel(x, y, pt.rawDE, sx, -sy),
+      makeDeLabel(x, y, pt.rawDE, -sx, -sy),
     ];
     const deL = chooseBest(deCands, usedBoxes, circles);
     addPolyline(deL.line, 'LEADER');
