@@ -1,0 +1,1245 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#1a237e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="收點 DXF">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>收點 DXF 工具</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+:root {
+  --primary: #1a237e;
+  --primary-light: #3949ab;
+  --accent: #ff6f00;
+  --bg: #f5f5f5;
+  --card: #ffffff;
+  --text: #212121;
+  --text-secondary: #757575;
+  --danger: #d32f2f;
+  --success: #2e7d32;
+  --radius: 12px;
+  --shadow: 0 2px 8px rgba(0,0,0,0.12);
+}
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Header */
+.header {
+  background: var(--primary);
+  color: white;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+.header h1 { font-size: 18px; font-weight: 600; }
+.header-actions { display: flex; gap: 4px; }
+.header-btn {
+  background: rgba(255,255,255,0.15);
+  border: none;
+  color: white;
+  width: 38px; height: 38px;
+  border-radius: 50%;
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.header-btn:active { background: rgba(255,255,255,0.3); }
+
+/* Tabs */
+.tab-bar {
+  display: flex;
+  background: var(--card);
+  border-bottom: 1px solid #e0e0e0;
+}
+.tab {
+  flex: 1;
+  padding: 12px;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  border: none;
+  background: none;
+  cursor: pointer;
+  border-bottom: 3px solid transparent;
+  transition: all 0.2s;
+}
+.tab.active {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+}
+
+/* Main content */
+.main { flex: 1; padding: 12px; padding-bottom: 90px; }
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+/* Empty state */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 50px 24px;
+  color: var(--text-secondary);
+  text-align: center;
+}
+.empty-state .icon { font-size: 64px; margin-bottom: 12px; opacity: 0.4; }
+.empty-state h2 { font-size: 20px; margin-bottom: 8px; color: var(--text); }
+.empty-state p { font-size: 14px; line-height: 1.6; }
+
+/* Point list */
+.point-card {
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  box-shadow: var(--shadow);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.point-card:active { transform: scale(0.98); }
+.point-num {
+  background: var(--primary);
+  color: white;
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+.point-info { flex: 1; min-width: 0; }
+.point-info .label { font-size: 12px; color: var(--text-secondary); }
+.point-info .values { font-size: 15px; font-weight: 500; font-family: "SF Mono", "Cascadia Code", monospace; }
+.point-actions { display: flex; gap: 2px; }
+.point-actions button {
+  background: none;
+  border: none;
+  width: 34px; height: 34px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.btn-edit { color: var(--primary-light); }
+.btn-delete { color: var(--danger); }
+
+/* Camera / OCR tab */
+.camera-section {
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 16px;
+  box-shadow: var(--shadow);
+  margin-bottom: 12px;
+}
+.camera-section h3 { font-size: 16px; margin-bottom: 12px; }
+.camera-btns {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.camera-btn {
+  flex: 1;
+  padding: 14px;
+  border: 2px dashed #bdbdbd;
+  border-radius: var(--radius);
+  background: #fafafa;
+  cursor: pointer;
+  text-align: center;
+  font-size: 14px;
+  color: var(--text-secondary);
+  transition: all 0.2s;
+}
+.camera-btn:active {
+  border-color: var(--primary);
+  background: #e8eaf6;
+}
+.camera-btn .cam-icon { font-size: 32px; display: block; margin-bottom: 6px; }
+
+.img-preview {
+  width: 100%;
+  max-height: 300px;
+  object-fit: contain;
+  border-radius: 8px;
+  display: none;
+  margin-bottom: 12px;
+  border: 1px solid #e0e0e0;
+}
+
+.ocr-status {
+  padding: 12px;
+  border-radius: 8px;
+  font-size: 14px;
+  display: none;
+  margin-bottom: 12px;
+}
+.ocr-status.loading {
+  display: block;
+  background: #fff3e0;
+  color: #e65100;
+}
+.ocr-status.done {
+  display: block;
+  background: #e8f5e9;
+  color: var(--success);
+}
+.ocr-status.error {
+  display: block;
+  background: #ffebee;
+  color: var(--danger);
+}
+
+.ocr-results {
+  display: none;
+}
+.ocr-results.show { display: block; }
+.ocr-result-item {
+  background: #f5f5f5;
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.ocr-result-item .ocr-vals {
+  flex: 1;
+  font-family: "SF Mono", "Cascadia Code", monospace;
+  font-size: 15px;
+}
+.ocr-result-item input {
+  width: 90px;
+  padding: 6px 8px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: "SF Mono", monospace;
+  text-align: center;
+}
+.ocr-result-item .remove-ocr {
+  color: var(--danger);
+  background: none;
+  border: none;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 4px;
+}
+.btn-add-ocr {
+  width: 100%;
+  padding: 12px;
+  background: var(--success);
+  color: white;
+  border: none;
+  border-radius: var(--radius);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 8px;
+}
+.btn-add-ocr:active { opacity: 0.8; }
+
+/* FAB */
+.fab-group {
+  position: fixed;
+  bottom: 80px;
+  right: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 50;
+}
+.fab {
+  background: var(--accent);
+  color: white;
+  border: none;
+  width: 52px; height: 52px;
+  border-radius: 50%;
+  font-size: 24px;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.fab:active { transform: scale(0.9); }
+.fab-secondary { background: var(--primary-light); width: 46px; height: 46px; font-size: 20px; }
+
+/* Bottom bar */
+.bottom-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--card);
+  padding: 10px 16px;
+  padding-bottom: max(10px, env(safe-area-inset-bottom));
+  box-shadow: 0 -2px 8px rgba(0,0,0,0.1);
+  z-index: 90;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.btn-generate {
+  flex: 1;
+  background: var(--primary);
+  color: white;
+  border: none;
+  padding: 13px;
+  border-radius: var(--radius);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.btn-generate:disabled { background: #bdbdbd; cursor: not-allowed; }
+.btn-generate:active:not(:disabled) { background: var(--primary-light); }
+.point-badge {
+  background: var(--accent);
+  color: white;
+  border-radius: 12px;
+  padding: 2px 10px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/* Modal overlay */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 200;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s;
+}
+.modal-overlay.active { opacity: 1; pointer-events: auto; }
+.modal {
+  background: var(--card);
+  border-radius: 20px 20px 0 0;
+  width: 100%;
+  max-width: 480px;
+  padding: 20px;
+  transform: translateY(100%);
+  transition: transform 0.3s ease-out;
+}
+.modal-overlay.active .modal { transform: translateY(0); }
+.modal h2 { font-size: 18px; margin-bottom: 16px; }
+.form-group { margin-bottom: 14px; }
+.form-group label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+.form-group input {
+  width: 100%;
+  padding: 11px 14px;
+  border: 2px solid #e0e0e0;
+  border-radius: 10px;
+  font-size: 17px;
+  font-family: "SF Mono", "Cascadia Code", monospace;
+  outline: none;
+}
+.form-group input:focus { border-color: var(--primary); }
+.modal-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+}
+.modal-actions button {
+  flex: 1;
+  padding: 11px;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+}
+.btn-cancel { background: #e0e0e0; color: var(--text); }
+.btn-confirm { background: var(--primary); color: white; }
+
+/* Batch modal */
+.batch-textarea {
+  width: 100%;
+  height: 140px;
+  padding: 11px 14px;
+  border: 2px solid #e0e0e0;
+  border-radius: 10px;
+  font-size: 15px;
+  font-family: "SF Mono", "Cascadia Code", monospace;
+  outline: none;
+  resize: vertical;
+}
+.batch-textarea:focus { border-color: var(--primary); }
+.batch-hint {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 6px;
+  line-height: 1.5;
+}
+
+/* Preview canvas */
+.preview-section {
+  margin-top: 12px;
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 12px;
+  box-shadow: var(--shadow);
+}
+.preview-section h3 { font-size: 14px; margin-bottom: 8px; color: var(--text-secondary); }
+.preview-canvas {
+  width: 100%;
+  height: 220px;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  background: white;
+}
+
+/* Toast */
+.toast {
+  position: fixed;
+  bottom: 76px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: #323232;
+  color: white;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-size: 14px;
+  z-index: 300;
+  opacity: 0;
+  transition: all 0.3s;
+  pointer-events: none;
+  white-space: nowrap;
+  max-width: 90vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* Install banner */
+.install-banner {
+  background: linear-gradient(135deg, var(--primary), var(--primary-light));
+  color: white;
+  padding: 10px 14px;
+  display: none;
+  align-items: center;
+  gap: 10px;
+}
+.install-banner.show { display: flex; }
+.install-banner p { flex: 1; font-size: 13px; }
+.install-banner button {
+  background: white;
+  color: var(--primary);
+  border: none;
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 12px;
+  cursor: pointer;
+}
+.install-banner .close-banner {
+  background: none;
+  color: white;
+  padding: 4px;
+  font-size: 16px;
+}
+
+/* Loading spinner */
+.spinner {
+  display: inline-block;
+  width: 18px; height: 18px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-right: 6px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<!-- Install banner -->
+<div class="install-banner" id="installBanner">
+  <p>加到主畫面，像 APP 一樣使用</p>
+  <button onclick="installApp()">安裝</button>
+  <button class="close-banner" onclick="dismissInstall()">&#10005;</button>
+</div>
+
+<!-- Header -->
+<div class="header">
+  <h1>&#9678; 收點 DXF</h1>
+  <div class="header-actions">
+    <button class="header-btn" onclick="openBatchModal()" title="批次輸入">&#9776;</button>
+    <button class="header-btn" onclick="clearAllPoints()" title="清除全部">&#128465;</button>
+  </div>
+</div>
+
+<!-- Tabs -->
+<div class="tab-bar">
+  <button class="tab active" onclick="switchTab('points')" id="tabPoints">&#128205; 點位列表</button>
+  <button class="tab" onclick="switchTab('camera')" id="tabCamera">&#128247; 拍照辨識</button>
+</div>
+
+<!-- Main -->
+<div class="main">
+
+  <!-- Tab 1: Point list -->
+  <div class="tab-content active" id="contentPoints">
+    <div class="empty-state" id="emptyState">
+      <div class="icon">&#128205;</div>
+      <h2>還沒有點位</h2>
+      <p>按右下角 + 手動新增<br>或切換到「拍照辨識」用相機輸入</p>
+    </div>
+    <div id="pointList"></div>
+    <div class="preview-section" id="previewSection" style="display:none">
+      <h3>&#128506; 點位預覽圖</h3>
+      <canvas class="preview-canvas" id="previewCanvas"></canvas>
+    </div>
+  </div>
+
+  <!-- Tab 2: Camera OCR -->
+  <div class="tab-content" id="contentCamera">
+    <div class="camera-section">
+      <h3>&#128247; 上傳照片辨識座標</h3>
+      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">
+        拍攝全站儀螢幕或手抄座標紙，系統自動辨識 dN / dE
+      </p>
+      <div class="camera-btns">
+        <label class="camera-btn">
+          <span class="cam-icon">&#128247;</span>
+          拍照
+          <input type="file" accept="image/*" capture="environment" style="display:none" onchange="handleImage(event)">
+        </label>
+        <label class="camera-btn">
+          <span class="cam-icon">&#128193;</span>
+          選照片
+          <input type="file" accept="image/*" style="display:none" onchange="handleImage(event)">
+        </label>
+      </div>
+      <img class="img-preview" id="imgPreview">
+      <div class="ocr-status" id="ocrStatus"></div>
+      <div class="ocr-results" id="ocrResults"></div>
+    </div>
+
+    <div class="camera-section">
+      <h3>&#128161; 辨識說明</h3>
+      <ul style="font-size:13px;color:var(--text-secondary);padding-left:20px;line-height:1.8">
+        <li>支援全站儀螢幕照片（自動抓 dN: / dE: 數值）</li>
+        <li>支援手寫座標紙（每行一組數字）</li>
+        <li>辨識後可手動修正再加入點位</li>
+        <li>OCR 引擎在瀏覽器端執行，不上傳照片</li>
+      </ul>
+    </div>
+  </div>
+
+</div>
+
+<!-- FAB group -->
+<div class="fab-group" id="fabGroup">
+  <button class="fab" onclick="openAddModal()" title="新增點位">+</button>
+</div>
+
+<!-- Bottom bar -->
+<div class="bottom-bar">
+  <span class="point-badge" id="pointBadge">0</span>
+  <button class="btn-generate" id="btnGenerate" disabled onclick="generateDXF()">
+    &#128196; 產生 DXF
+  </button>
+</div>
+
+<!-- Add/Edit Modal -->
+<div class="modal-overlay" id="pointModal">
+  <div class="modal">
+    <h2 id="modalTitle">新增點位</h2>
+    <div class="form-group">
+      <label>dN (Y 座標)</label>
+      <input type="number" id="inputDN" step="any" inputmode="decimal" placeholder="例如 100.515">
+    </div>
+    <div class="form-group">
+      <label>dE (X 座標)</label>
+      <input type="number" id="inputDE" step="any" inputmode="decimal" placeholder="例如 158.407">
+    </div>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeModal()">取消</button>
+      <button class="btn-confirm" onclick="confirmPoint()">確認</button>
+    </div>
+  </div>
+</div>
+
+<!-- Batch Modal -->
+<div class="modal-overlay" id="batchModal">
+  <div class="modal">
+    <h2>批次輸入</h2>
+    <textarea class="batch-textarea" id="batchInput" placeholder="100.515,158.407&#10;124.038,197.309&#10;126.872,92.540"></textarea>
+    <div class="batch-hint">每行一組 dN,dE（逗號分隔）<br>會加入到現有點位後面</div>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeBatchModal()">取消</button>
+      <button class="btn-confirm" onclick="confirmBatch()">匯入</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<!-- Tesseract.js CDN -->
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+
+<script>
+// ============ State ============
+let points = [];
+let editIndex = -1;
+let deferredPrompt = null;
+
+try {
+  const saved = localStorage.getItem('survey_points');
+  if (saved) points = JSON.parse(saved);
+} catch(e) {}
+
+// ============ UI Helpers ============
+function savePoints() {
+  localStorage.setItem('survey_points', JSON.stringify(points));
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  if (name === 'points') {
+    document.getElementById('tabPoints').classList.add('active');
+    document.getElementById('contentPoints').classList.add('active');
+    document.getElementById('fabGroup').style.display = 'flex';
+  } else {
+    document.getElementById('tabCamera').classList.add('active');
+    document.getElementById('contentCamera').classList.add('active');
+    document.getElementById('fabGroup').style.display = 'none';
+  }
+}
+
+function renderList() {
+  const list = document.getElementById('pointList');
+  const empty = document.getElementById('emptyState');
+  const btn = document.getElementById('btnGenerate');
+  const badge = document.getElementById('pointBadge');
+  const preview = document.getElementById('previewSection');
+
+  badge.textContent = points.length;
+
+  if (points.length === 0) {
+    empty.style.display = 'flex';
+    list.innerHTML = '';
+    btn.disabled = true;
+    preview.style.display = 'none';
+    return;
+  }
+
+  empty.style.display = 'none';
+  btn.disabled = false;
+  preview.style.display = 'block';
+
+  list.innerHTML = points.map((p, i) => `
+    <div class="point-card">
+      <div class="point-num">${i + 1}</div>
+      <div class="point-info">
+        <div class="label">dN / dE</div>
+        <div class="values">${p.dN.toFixed(3)} , ${p.dE.toFixed(3)}</div>
+      </div>
+      <div class="point-actions">
+        <button class="btn-edit" onclick="openEditModal(${i})">&#9998;</button>
+        <button class="btn-delete" onclick="deletePoint(${i})">&#10005;</button>
+      </div>
+    </div>
+  `).join('');
+
+  drawPreview();
+}
+
+// ============ Point Modal ============
+function openAddModal() {
+  editIndex = -1;
+  document.getElementById('modalTitle').textContent = '新增點位';
+  document.getElementById('inputDN').value = '';
+  document.getElementById('inputDE').value = '';
+  document.getElementById('pointModal').classList.add('active');
+  setTimeout(() => document.getElementById('inputDN').focus(), 300);
+}
+
+function openEditModal(i) {
+  editIndex = i;
+  document.getElementById('modalTitle').textContent = '修改點位 ' + (i + 1);
+  document.getElementById('inputDN').value = points[i].dN;
+  document.getElementById('inputDE').value = points[i].dE;
+  document.getElementById('pointModal').classList.add('active');
+  setTimeout(() => document.getElementById('inputDN').focus(), 300);
+}
+
+function closeModal() {
+  document.getElementById('pointModal').classList.remove('active');
+}
+
+function confirmPoint() {
+  const dn = parseFloat(document.getElementById('inputDN').value);
+  const de = parseFloat(document.getElementById('inputDE').value);
+  if (isNaN(dn) || isNaN(de)) { showToast('請輸入正確的數字'); return; }
+  if (editIndex >= 0) {
+    points[editIndex] = { dN: dn, dE: de };
+    showToast('已更新點位 ' + (editIndex + 1));
+  } else {
+    points.push({ dN: dn, dE: de });
+    showToast('已新增點位 ' + points.length);
+  }
+  savePoints();
+  renderList();
+  closeModal();
+}
+
+function deletePoint(i) {
+  points.splice(i, 1);
+  savePoints();
+  renderList();
+  showToast('已刪除');
+}
+
+function clearAllPoints() {
+  if (points.length === 0) return;
+  if (!confirm('確定要清除全部 ' + points.length + ' 個點位？')) return;
+  points = [];
+  savePoints();
+  renderList();
+  showToast('已清除全部');
+}
+
+// ============ Batch ============
+function openBatchModal() {
+  document.getElementById('batchInput').value = '';
+  document.getElementById('batchModal').classList.add('active');
+  setTimeout(() => document.getElementById('batchInput').focus(), 300);
+}
+
+function closeBatchModal() {
+  document.getElementById('batchModal').classList.remove('active');
+}
+
+function confirmBatch() {
+  const text = document.getElementById('batchInput').value.trim();
+  if (!text) { showToast('請輸入座標'); return; }
+  let added = 0;
+  for (const line of text.split('\n')) {
+    const clean = line.trim().replace(/\uff0c/g, ',');
+    if (!clean) continue;
+    const parts = clean.split(',');
+    if (parts.length < 2) continue;
+    const dn = parseFloat(parts[0]);
+    const de = parseFloat(parts[1]);
+    if (isNaN(dn) || isNaN(de)) continue;
+    points.push({ dN: dn, dE: de });
+    added++;
+  }
+  if (added === 0) { showToast('沒有有效座標'); return; }
+  savePoints();
+  renderList();
+  closeBatchModal();
+  showToast('已匯入 ' + added + ' 個點位');
+}
+
+// ============ Camera / OCR ============
+let ocrParsedPoints = [];
+
+function handleImage(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const img = document.getElementById('imgPreview');
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    img.src = e.target.result;
+    img.style.display = 'block';
+    runOCR(e.target.result);
+  };
+  reader.readAsDataURL(file);
+}
+
+async function runOCR(imageData) {
+  const status = document.getElementById('ocrStatus');
+  const results = document.getElementById('ocrResults');
+
+  status.className = 'ocr-status loading';
+  status.innerHTML = '<span class="spinner"></span> 正在辨識中，請稍候...';
+  results.className = 'ocr-results';
+  results.innerHTML = '';
+
+  try {
+    const result = await Tesseract.recognize(imageData, 'eng', {
+      logger: (m) => {
+        if (m.status === 'recognizing text') {
+          const pct = Math.round((m.progress || 0) * 100);
+          status.innerHTML = `<span class="spinner"></span> 辨識中... ${pct}%`;
+        }
+      }
+    });
+
+    const text = result.data.text;
+    console.log('OCR raw text:', text);
+
+    // Parse coordinates from OCR text
+    ocrParsedPoints = parseOcrText(text);
+
+    if (ocrParsedPoints.length > 0) {
+      status.className = 'ocr-status done';
+      status.textContent = `找到 ${ocrParsedPoints.length} 組座標，請確認後加入`;
+      renderOcrResults();
+    } else {
+      status.className = 'ocr-status error';
+      status.textContent = '未找到座標數值，請嘗試手動輸入或重新拍照';
+      // Show raw text for debugging
+      results.className = 'ocr-results show';
+      results.innerHTML = `<div style="font-size:12px;color:#999;padding:8px;background:#f5f5f5;border-radius:8px;white-space:pre-wrap;word-break:break-all">OCR 原始文字：\n${text}</div>`;
+    }
+  } catch(e) {
+    status.className = 'ocr-status error';
+    status.textContent = '辨識失敗: ' + e.message;
+  }
+}
+
+function parseOcrText(text) {
+  const found = [];
+  const lines = text.split('\n');
+
+  // Strategy 1: Look for dN: xxx dE: xxx pattern (total station screen)
+  let currentDN = null;
+  for (const line of lines) {
+    const dnMatch = line.match(/dN[:\s]*([+-]?\d+\.?\d*)/i);
+    const deMatch = line.match(/dE[:\s]*([+-]?\d+\.?\d*)/i);
+
+    if (dnMatch) currentDN = parseFloat(dnMatch[1]);
+    if (deMatch && currentDN !== null) {
+      found.push({ dN: currentDN, dE: parseFloat(deMatch[1]) });
+      currentDN = null;
+    }
+  }
+
+  if (found.length > 0) return found;
+
+  // Strategy 2: Look for "number,number" or "number number" patterns per line
+  for (const line of lines) {
+    const clean = line.trim().replace(/\uff0c/g, ',');
+    // Match: number separator number (comma, space, or tab)
+    const match = clean.match(/([+-]?\d+\.?\d*)\s*[,\s\t]+\s*([+-]?\d+\.?\d*)/);
+    if (match) {
+      const a = parseFloat(match[1]);
+      const b = parseFloat(match[2]);
+      if (!isNaN(a) && !isNaN(b) && (a > 1 || b > 1)) {
+        found.push({ dN: a, dE: b });
+      }
+    }
+  }
+
+  if (found.length > 0) return found;
+
+  // Strategy 3: Collect all standalone numbers and pair them
+  const allNums = [];
+  const numPattern = /\d+\.?\d*/g;
+  let m;
+  for (const line of lines) {
+    while ((m = numPattern.exec(line)) !== null) {
+      const v = parseFloat(m[0]);
+      if (v > 1) allNums.push(v); // filter tiny numbers that are probably noise
+    }
+  }
+  // Pair consecutive numbers as dN, dE
+  for (let i = 0; i + 1 < allNums.length; i += 2) {
+    found.push({ dN: allNums[i], dE: allNums[i + 1] });
+  }
+
+  return found;
+}
+
+function renderOcrResults() {
+  const results = document.getElementById('ocrResults');
+  results.className = 'ocr-results show';
+
+  let html = ocrParsedPoints.map((p, i) => `
+    <div class="ocr-result-item" id="ocrItem${i}">
+      <span style="font-weight:600;color:var(--primary);min-width:24px">${i + 1}</span>
+      <input type="number" step="any" value="${p.dN}" id="ocrDN${i}" placeholder="dN">
+      <span style="color:#999">,</span>
+      <input type="number" step="any" value="${p.dE}" id="ocrDE${i}" placeholder="dE">
+      <button class="remove-ocr" onclick="removeOcrItem(${i})">&#10005;</button>
+    </div>
+  `).join('');
+
+  html += `<button class="btn-add-ocr" onclick="addOcrPoints()">&#10003; 全部加入點位列表</button>`;
+  results.innerHTML = html;
+}
+
+function removeOcrItem(i) {
+  document.getElementById('ocrItem' + i).remove();
+  ocrParsedPoints[i] = null;
+}
+
+function addOcrPoints() {
+  let added = 0;
+  for (let i = 0; i < ocrParsedPoints.length; i++) {
+    if (!ocrParsedPoints[i]) continue;
+    const dnEl = document.getElementById('ocrDN' + i);
+    const deEl = document.getElementById('ocrDE' + i);
+    if (!dnEl || !deEl) continue;
+    const dn = parseFloat(dnEl.value);
+    const de = parseFloat(deEl.value);
+    if (isNaN(dn) || isNaN(de)) continue;
+    points.push({ dN: dn, dE: de });
+    added++;
+  }
+  if (added === 0) { showToast('沒有有效座標'); return; }
+  savePoints();
+  renderList();
+  showToast('已加入 ' + added + ' 個點位');
+  // Switch to points tab
+  switchTab('points');
+  // Reset OCR UI
+  document.getElementById('ocrResults').className = 'ocr-results';
+  document.getElementById('ocrStatus').className = 'ocr-status';
+  document.getElementById('imgPreview').style.display = 'none';
+  ocrParsedPoints = [];
+}
+
+// ============ Canvas Preview ============
+function drawPreview() {
+  const canvas = document.getElementById('previewCanvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+
+  canvas.width = canvas.clientWidth * dpr;
+  canvas.height = canvas.clientHeight * dpr;
+  ctx.scale(dpr, dpr);
+
+  const W = canvas.clientWidth;
+  const H = canvas.clientHeight;
+
+  ctx.fillStyle = '#fafafa';
+  ctx.fillRect(0, 0, W, H);
+
+  if (points.length === 0) return;
+
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const p of points) {
+    minX = Math.min(minX, p.dE); maxX = Math.max(maxX, p.dE);
+    minY = Math.min(minY, p.dN); maxY = Math.max(maxY, p.dN);
+  }
+  const pad = 36;
+  const rangeX = maxX - minX || 1;
+  const rangeY = maxY - minY || 1;
+  const scale = Math.min((W - pad * 2) / rangeX, (H - pad * 2) / rangeY);
+
+  function tx(x) { return pad + (x - minX) * scale + ((W - pad * 2) - rangeX * scale) / 2; }
+  function ty(y) { return H - pad - (y - minY) * scale - ((H - pad * 2) - rangeY * scale) / 2; }
+
+  // Grid
+  ctx.strokeStyle = '#e8e8e8';
+  ctx.lineWidth = 0.5;
+  for (let i = 0; i <= 4; i++) {
+    const gx = pad + (W - pad * 2) * i / 4;
+    const gy = pad + (H - pad * 2) * i / 4;
+    ctx.beginPath(); ctx.moveTo(gx, pad); ctx.lineTo(gx, H - pad); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(pad, gy); ctx.lineTo(W - pad, gy); ctx.stroke();
+  }
+
+  // Points
+  for (let i = 0; i < points.length; i++) {
+    const p = points[i];
+    const x = tx(p.dE);
+    const y = ty(p.dN);
+
+    ctx.beginPath();
+    ctx.arc(x, y, 5, 0, Math.PI * 2);
+    ctx.fillStyle = '#1a237e';
+    ctx.fill();
+    ctx.strokeStyle = 'white';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    ctx.fillStyle = '#333';
+    ctx.font = 'bold 10px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText((i + 1).toString(), x + 8, y - 3);
+
+    ctx.font = '8px monospace';
+    ctx.fillStyle = '#888';
+    ctx.fillText(`${p.dN.toFixed(1)},${p.dE.toFixed(1)}`, x + 8, y + 8);
+  }
+}
+
+// ============ DXF Generator ============
+const RADIUS = 8;
+const TEXT_HEIGHT = 2.5;
+const STUB = 9.38;
+const DIAG_X = 10.02;
+const DIAG_Y = 9.44;
+const ARM = 18;
+const SAFE = 3;
+
+function textBox(x, y, text, vertical) {
+  let w, h;
+  if (vertical) { w = TEXT_HEIGHT; h = text.length * TEXT_HEIGHT * 0.75; }
+  else { w = text.length * TEXT_HEIGHT * 0.75; h = TEXT_HEIGHT; }
+  return [x - SAFE, y - SAFE, x + w + SAFE, y + h + SAFE];
+}
+
+function boxOverlap(a, b) {
+  return !(a[2] < b[0] || a[0] > b[2] || a[3] < b[1] || a[1] > b[3]);
+}
+
+function boxHitsCircle(box, circles) {
+  for (const [cx, cy, r] of circles) {
+    const nx = Math.max(box[0], Math.min(cx, box[2]));
+    const ny = Math.max(box[1], Math.min(cy, box[3]));
+    if (Math.hypot(cx - nx, cy - ny) < r + SAFE) return true;
+  }
+  return false;
+}
+
+function validLabel(box, usedBoxes, circles) {
+  if (boxHitsCircle(box, circles)) return false;
+  for (const b of usedBoxes) { if (boxOverlap(box, b)) return false; }
+  return true;
+}
+
+function makeDnLabel(x, y, value, sx, sy) {
+  const text = value.toFixed(3);
+  const p0 = [x, y], p1 = [x + sx * STUB, y];
+  const p2 = [p1[0] + sx * DIAG_X, p1[1] + sy * DIAG_Y];
+  const p3 = [p2[0] + sx * ARM, p2[1]];
+  const tx = sx > 0 ? p2[0] + 1.5 : p3[0];
+  const ty = p3[1] + 0.8;
+  return { line: [p0, p1, p2, p3], text: [tx, ty], value: text, vertical: false, box: textBox(tx, ty, text, false) };
+}
+
+function makeDeLabel(x, y, value, sx, sy) {
+  const text = value.toFixed(3);
+  const p0 = [x, y], p1 = [x, y + sy * STUB];
+  const p2 = [p1[0] + sx * DIAG_X, p1[1] + sy * DIAG_Y];
+  const p3 = [p2[0], p2[1] + sy * ARM];
+  const tx = p3[0] - 2.8;
+  const ty = sy > 0 ? p2[1] + 1.5 : p3[1];
+  return { line: [p0, p1, p2, p3], text: [tx, ty], value: text, vertical: true, box: textBox(tx, ty, text, true) };
+}
+
+function chooseBest(candidates, usedBoxes, circles) {
+  for (const c of candidates) {
+    if (validLabel(c.box, usedBoxes, circles)) { usedBoxes.push(c.box); return c; }
+  }
+  usedBoxes.push(candidates[0].box);
+  return candidates[0];
+}
+
+function buildDxfString(pts) {
+  const circles = pts.map(p => [p.dE, p.dN, RADIUS]);
+  const usedBoxes = [];
+  const centerX = pts.reduce((s, p) => s + p.dE, 0) / pts.length;
+  const centerY = pts.reduce((s, p) => s + p.dN, 0) / pts.length;
+
+  // Collect all entities
+  const ents = [];
+
+  for (const pt of pts) {
+    const x = pt.dE, y = pt.dN;
+
+    // Circle
+    ents.push(`0\nCIRCLE\n8\nCIRCLE\n10\n${x.toFixed(6)}\n20\n${y.toFixed(6)}\n30\n0.0\n40\n${RADIUS.toFixed(6)}`);
+
+    // Point
+    ents.push(`0\nPOINT\n8\nCIRCLE\n10\n${x.toFixed(6)}\n20\n${y.toFixed(6)}\n30\n0.0`);
+
+    const sx = x >= centerX ? 1 : -1;
+    const sy = y >= centerY ? 1 : -1;
+
+    // dN label
+    const dnCands = [
+      makeDnLabel(x, y, pt.dN, sx, sy),
+      makeDnLabel(x, y, pt.dN, sx, -sy),
+      makeDnLabel(x, y, pt.dN, -sx, sy),
+      makeDnLabel(x, y, pt.dN, -sx, -sy),
+    ];
+    const dnL = chooseBest(dnCands, usedBoxes, circles);
+    // Polyline
+    let pl = `0\nLWPOLYLINE\n8\nLEADER\n90\n${dnL.line.length}\n70\n0`;
+    for (const [vx, vy] of dnL.line) pl += `\n10\n${vx.toFixed(6)}\n20\n${vy.toFixed(6)}`;
+    ents.push(pl);
+    // Text
+    ents.push(`0\nTEXT\n8\nTEXT\n10\n${dnL.text[0].toFixed(6)}\n20\n${dnL.text[1].toFixed(6)}\n30\n0.0\n40\n${TEXT_HEIGHT.toFixed(6)}\n1\n${dnL.value}\n50\n${dnL.vertical ? '90.0' : '0.0'}`);
+
+    // dE label
+    const deCands = [
+      makeDeLabel(x, y, pt.dE, sx, sy),
+      makeDeLabel(x, y, pt.dE, -sx, sy),
+      makeDeLabel(x, y, pt.dE, sx, -sy),
+      makeDeLabel(x, y, pt.dE, -sx, -sy),
+    ];
+    const deL = chooseBest(deCands, usedBoxes, circles);
+    let pl2 = `0\nLWPOLYLINE\n8\nLEADER\n90\n${deL.line.length}\n70\n0`;
+    for (const [vx, vy] of deL.line) pl2 += `\n10\n${vx.toFixed(6)}\n20\n${vy.toFixed(6)}`;
+    ents.push(pl2);
+    ents.push(`0\nTEXT\n8\nTEXT\n10\n${deL.text[0].toFixed(6)}\n20\n${deL.text[1].toFixed(6)}\n30\n0.0\n40\n${TEXT_HEIGHT.toFixed(6)}\n1\n${deL.value}\n50\n${deL.vertical ? '90.0' : '0.0'}`);
+  }
+
+  // Build minimal valid DXF
+  // Using the simplest R12 format which is most compatible
+  const dxf = [
+    '0', 'SECTION',
+    '2', 'HEADER',
+    '9', '$ACADVER',
+    '1', 'AC1009',
+    '0', 'ENDSEC',
+    '0', 'SECTION',
+    '2', 'TABLES',
+    '0', 'TABLE',
+    '2', 'LAYER',
+    '70', '3',
+    '0', 'LAYER',
+    '2', 'CIRCLE',
+    '70', '0',
+    '62', '7',
+    '6', 'CONTINUOUS',
+    '0', 'LAYER',
+    '2', 'LEADER',
+    '70', '0',
+    '62', '7',
+    '6', 'CONTINUOUS',
+    '0', 'LAYER',
+    '2', 'TEXT',
+    '70', '0',
+    '62', '7',
+    '6', 'CONTINUOUS',
+    '0', 'ENDTAB',
+    '0', 'ENDSEC',
+    '0', 'SECTION',
+    '2', 'ENTITIES',
+    ...ents.flatMap(e => e.split('\n')),
+    '0', 'ENDSEC',
+    '0', 'EOF'
+  ].join('\n');
+
+  return dxf;
+}
+
+function generateDXF() {
+  if (points.length === 0) { showToast('請先輸入點位'); return; }
+  try {
+    const dxfContent = buildDxfString(points);
+    const blob = new Blob([dxfContent], { type: 'application/dxf' });
+
+    // Try native share on mobile
+    if (navigator.share && navigator.canShare) {
+      const file = new File([blob], 'points_clean.dxf', { type: 'application/dxf' });
+      if (navigator.canShare({ files: [file] })) {
+        navigator.share({
+          files: [file],
+          title: '收點 DXF',
+        }).then(() => {
+          showToast('DXF 已分享！');
+        }).catch(() => {
+          downloadBlob(blob);
+        });
+        return;
+      }
+    }
+
+    // Fallback: download
+    downloadBlob(blob);
+  } catch (e) {
+    showToast('產生失敗: ' + e.message);
+    console.error(e);
+  }
+}
+
+function downloadBlob(blob) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'points_clean.dxf';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+  showToast('DXF 已下載！用 DWG FastView 開啟');
+}
+
+// ============ PWA Install ============
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredPrompt = e;
+  document.getElementById('installBanner').classList.add('show');
+});
+
+function installApp() {
+  if (!deferredPrompt) return;
+  deferredPrompt.prompt();
+  deferredPrompt.userChoice.then(() => {
+    deferredPrompt = null;
+    document.getElementById('installBanner').classList.remove('show');
+  });
+}
+
+function dismissInstall() {
+  document.getElementById('installBanner').classList.remove('show');
+}
+
+// ============ Service Worker ============
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+
+// ============ Keyboard ============
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    if (document.getElementById('pointModal').classList.contains('active')) confirmPoint();
+  }
+  if (e.key === 'Escape') { closeModal(); closeBatchModal(); }
+});
+
+// ============ Init ============
+renderList();
+</script>
+</body>
+</html>
